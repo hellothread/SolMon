@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply antialiased;
+  }
+
+  /* Smooth scrolling behavior */
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* 定义主题变量 */
+:root {
+  --scrollbar-track: #FFFFFF;
+  --scrollbar-thumb: #E5E7EB;
+  --scrollbar-thumb-hover: #D1D5DB;
+  
+  /* 搜索结果滚动条 */
+  --search-scrollbar-track: #F3F4F6;
+  --search-scrollbar-thumb: #D1D5DB;
+  --search-scrollbar-thumb-hover: #9CA3AF;
+}
+
+/* 暗色模式变量 */
+[data-theme="dark"] {
+  --scrollbar-track: rgb(31 41 55);
+  --scrollbar-thumb: rgb(75 85 99);
+  --scrollbar-thumb-hover: rgb(107 114 128);
+  
+  /* 搜索结果滚动条 */
+  --search-scrollbar-track: rgb(31 41 55);
+  --search-scrollbar-thumb: rgb(75 85 99);
+  --search-scrollbar-thumb-hover: rgb(107 114 128);
+}
+
+/* 全局滚动条 */
+/* ::-webkit-scrollbar {
+  width: 8px;
+} */
+/* 
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 9999px;
+} */
+
+/* ::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+} */
+
