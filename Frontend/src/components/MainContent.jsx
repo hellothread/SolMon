@@ -30,7 +30,7 @@ const MainContent = ({ isSidebarOpen, setSidebarOpen, isDark }) => {
           duration-300 
           ${isDeviceMobile 
             ? 'px-4 py-6 ml-16'  
-            : `${isSidebarOpen ? 'ml-64' : 'ml-16'} p-6`
+            : `${isSidebarOpen ? 'ml-64' : 'ml-16'}`
           }
         `}
       >

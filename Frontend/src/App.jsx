@@ -99,10 +99,10 @@ function App() {
           />
         </div>
 
-        <Footer 
+        {/* <Footer 
           isSidebarOpen={isSidebarOpen} 
           isDark={isDark} 
-        />
+        /> */}
       </div>
     </ThemeProvider>
   );

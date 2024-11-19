@@ -52,3 +52,27 @@ def batch_create_wallets(db: Session, wallets: List[schemas.WalletCreate]):
     
     return result 
 
+def get_monitoring_transactions(db: Session, skip: int = 0, limit: int = 20):
+    """获取所有钱包的最新交易记录，按时间倒序排序"""
+    # 获取总记录数
+    total = db.query(models.Transaction).count()
+    
+    # 获取分页数据
+    transactions = (db.query(models.Transaction)
+            .join(models.Wallet)  # 关联钱包表
+            .order_by(models.Transaction.timestamp.desc())  # 按时间倒序
+            .offset(skip)
+            .limit(limit)
+            .all())
+            
+    return {
+        "items": transactions,
+        "total": total,
+        "total_pages": (total + limit - 1) // limit  # 向上取整
+    }
+
+# 可选：获取交易总数
+def get_monitoring_transactions_count(db: Session):
+    """获取交易总数"""
+    return db.query(models.Transaction).count()
+

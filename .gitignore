@@ -23,6 +23,7 @@ yarn.lock
 *.swo
 .DS_Store
 Thumbs.db
+sql_app.db
 
 # Logs
 logs
