@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from . import models, schemas
+from utils import models, schemas
 from typing import List
 
 def get_wallet(db: Session, wallet_id: int):
@@ -12,6 +12,7 @@ def get_wallets(db: Session, skip: int = 0, limit: int = 100):
     return db.query(models.Wallet).offset(skip).limit(limit).all()
 
 def create_wallet(db: Session, wallet: schemas.WalletCreate):
+
     db_wallet = models.Wallet(**wallet.dict())
     db.add(db_wallet)
     db.commit()
@@ -75,4 +76,18 @@ def get_monitoring_transactions(db: Session, skip: int = 0, limit: int = 20):
 def get_monitoring_transactions_count(db: Session):
     """获取交易总数"""
     return db.query(models.Transaction).count()
+
+def get_transaction_by_hash(db: Session, tx_hash: str):
+    """根据交易哈希获取交易记录"""
+    return db.query(models.Transaction).filter(models.Transaction.tx_hash == tx_hash).first()
+
+def get_token_by_address(db: Session, contract_address: str):
+    return db.query(models.Token).filter(models.Token.contract_address == contract_address).first()
+
+def create_token(db: Session, token_data: dict):
+    db_token = models.Token(**token_data)
+    db.add(db_token)
+    db.commit()
+    db.refresh(db_token)
+    return db_token
 
