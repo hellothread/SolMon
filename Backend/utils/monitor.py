@@ -8,6 +8,10 @@ from typing import List, Dict
 import websockets
 import base58
 import aiohttp
+from spl.token.client import Token
+from spl.token.constants import TOKEN_PROGRAM_ID
+from solders.pubkey import Pubkey
+
 
 class SolanaMonitor:
     def __init__(self, db: Session, rpc_url: str = "https://api.mainnet-beta.solana.com"):
@@ -22,59 +26,63 @@ class SolanaMonitor:
         self.wallets = crud.get_wallets(self.db)
         return [wallet.address for wallet in self.wallets]
     
-    async def get_token_info(self, mint_address: str):
+    async def get_token_info(self, mint_address: str, pubkey: str):
         """获取代币信息，如果数据库没有则从链上获取并保存"""
         # 先从缓存中查找
         if mint_address in self.token_cache:
+            print(f"从缓存中获取代币信息: {mint_address}")
             return self.token_cache[mint_address]
             
         # 从数据库查找
         token = crud.get_token_by_address(self.db, mint_address)
         if token:
+            print(f"从数据库中获取代币信息: {mint_address}")
             self.token_cache[mint_address] = token
             return token
             
         try:
-            # 从 Jupiter API 获取代币信息
-            jupiter_url = "https://token.jup.ag/all"
+            print(f"从链上获取代币信息: {mint_address}")
+             # 从 Jupiter API 获取代币信息
+            jupiter_url = f"https://api.phantom.app/search/v1?query={mint_address}&chainIds=solana%3A101&platform=extension&pageSize=50&searchTypes=fungible&searchContext=swapper&supportedNetworkIds=solana%3A101%2Ceip155%3A1%2Ceip155%3A137%2Ceip155%3A8453"
             async with aiohttp.ClientSession() as session:
                 async with session.get(jupiter_url) as resp:
-                    tokens = await resp.json()
-                    print(tokens)
-                    token_info = next((t for t in tokens if t.get("address") == mint_address), None)
-            
-            if token_info:
-                # 使用 Jupiter API 的信息
-                token_data = {
-                    "contract_address": mint_address,
-                    "decimals": token_info.get("decimals", 6),
-                    "symbol": token_info.get("symbol", mint_address[:6]),
-                    "name": token_info.get("name", f"Token {mint_address[:6]}"),
-                    "current_price": 0.0
-                }
-            else:
-                # 如果找不到代币信息，使用默认值
-                token_data = {
-                    "contract_address": mint_address,
-                    "decimals": 6,
-                    "symbol": mint_address[:6],
-                    "name": f"Token {mint_address[:6]}",
-                    "current_price": 0.0
-                }
+                    if resp.status == 200:
+                        data = await resp.json()
+                        # 获取第一个结果
+                        results = data.get("results", [])
+                        if results and results[0].get("type") == "fungible":
+                            token_info = results[0].get("data", {}).get("data", {})
+                            
+                            if token_info:
+                                token_data = {
+                                    "contract_address": mint_address,
+                                    "decimals": token_info.get("decimals", 6),
+                                    "symbol": token_info.get("symbol", f"PUMP-{mint_address[:4]}"),
+                                    "name": token_info.get("name", f"Pump Token {mint_address[:8]}"),
+                                    "current_price": 0.0  # 价格需要从其他 API 获取
+                                }
+                            else:
+                                token_data = {
+                                    "contract_address": mint_address,
+                                    "decimals": 6,
+                                    "symbol": f"PUMP-{mint_address[:4]}",
+                                    "name": f"Pump Token {mint_address[:8]}",
+                                    "current_price": 0.0
+                                }
             
             token = crud.create_token(self.db, token_data)
             self.token_cache[mint_address] = token
             print(f"已创建新代币: {token.symbol} ({mint_address})")
             return token
+               
                 
         except Exception as e:
             print(f"获取代币信息错误: {str(e)}")
-            # 创建一个基本的代币记录
             token_data = {
                 "contract_address": mint_address,
                 "decimals": 6,
-                "symbol": mint_address[:6],
-                "name": f"Token {mint_address[:6]}",
+                "symbol": f"RAY-{mint_address[:4]}",
+                "name": f"Raydium Token {mint_address[:8]}",
                 "current_price": 0.0
             }
             token = crud.create_token(self.db, token_data)
@@ -117,7 +125,7 @@ class SolanaMonitor:
                 return
 
             # 获取代币信息
-            token = await self.get_token_info(mint_address)
+            token = await self.get_token_info(mint_address,pubkey)
             if not token:
                 print(f"无法获取代币信息: {mint_address}")
                 return
@@ -129,13 +137,23 @@ class SolanaMonitor:
             # 检查是否有状态变化
             previous_amount = self.account_states.get(pubkey, 0)
             if current_amount != previous_amount:
-                # 确定交易类型
-                tx_type = "sell" if current_amount < previous_amount else "buy"
+                # 获取交易签名
+                slot = tx_data.get("result", {}).get("context", {}).get("slot", "")
+                tx_hash = f"{pubkey}_{slot}"
+                
+                # 当代币数量增加时是买入，减少时是卖出
+                tx_type = "buy" if current_amount > previous_amount else "sell"
                 amount_change = abs(current_amount - previous_amount)
                 
+                print(f"DEBUG: previous={previous_amount}, current={current_amount}, type={tx_type}, "
+                      f"change={amount_change} {'增加' if current_amount > previous_amount else '减少'}")
+                
+                # 计算 USD 金额
+                usd_amount = amount_change * token.current_price if token.current_price else 0
+                
                 transaction = {
-                    "tx_hash": pubkey,
-                    "amount": amount_change,
+                    "tx_hash": tx_hash,
+                    "amount": usd_amount,
                     "tx_type": tx_type,
                     "quantity": amount_change,
                     "timestamp": datetime.now(),
@@ -143,10 +161,10 @@ class SolanaMonitor:
                     "token_id": token.id
                 }
                 
-                # 保存交易记录
-                if not crud.get_transaction_by_hash(self.db, transaction["tx_hash"]):
-                    crud.create_transaction(self.db, transaction)
-                    print(f"新交易已记录: {tx_type} {amount_change} {token.symbol} (钱包: {wallet.address})")
+                # 直接创建交易记录
+                crud.create_transaction(self.db, transaction)
+                print(f"新交易已记录: {tx_type} {amount_change} {token.symbol} "
+                      f"(价值: ${usd_amount:.2f}, 钱包: {wallet.address})")
                 
                 # 更新状态
                 self.account_states[pubkey] = current_amount
@@ -162,24 +180,23 @@ class SolanaMonitor:
             print("没有要监控的钱包地址")
             return
 
+        # Raydium V4 AMM Program ID
+        RAYDIUM_V4_PROGRAM_ID = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
+
         subscription_messages = [
             {
                 "jsonrpc": "2.0",
-                "id": i,
-                "method": "programSubscribe",  
+                "id": str(i),
+                "method": "blockSubscribe",
                 "params": [
-                    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",  # SPL Token 程序 ID
                     {
-                        "encoding": "jsonParsed",
+                        "mentionsAccountOrProgram": address
+                    },
+                    {
                         "commitment": "confirmed",
-                        "filters": [
-                            {
-                                "memcmp": {
-                                    "offset": 32,  # owner 地址在 Token 账户数据中的偏移量
-                                    "bytes": address  # 监控的钱包地址
-                                }
-                            }
-                        ]
+                        "encoding": "jsonParsed",
+                        "showRewards": True,
+                        "transactionDetails": "full"
                     }
                 ]
             }
@@ -194,7 +211,7 @@ class SolanaMonitor:
                 async with websockets.connect(self.ws_url, ping_interval=30) as websocket:
                     for message in subscription_messages:
                         await websocket.send(json.dumps(message))
-                        print(f"已订阅地址: {message['params'][1]['filters'][0]['memcmp']['bytes']}")
+                        print(f"已订阅址: {message['params'][0]['mentionsAccountOrProgram']}")
                     
                     while True:
                         try:
@@ -215,8 +232,7 @@ class SolanaMonitor:
             except Exception as e:
                 print(f"连接错误: {str(e)}")
                 print("5秒后尝试重连...")
-                await asyncio.sleep(5)
-
+                await asyncio.sleep(1)
 
 async def run_monitor(db: Session):
     """运行监控器的入口函数"""
