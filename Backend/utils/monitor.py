@@ -183,40 +183,50 @@ class SolanaMonitor:
         # Raydium V4 AMM Program ID
         RAYDIUM_V4_PROGRAM_ID = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
 
-        subscription_messages = [
-            {
-                "jsonrpc": "2.0",
-                "id": str(i),
-                "method": "blockSubscribe",
-                "params": [
-                    {
-                        "mentionsAccountOrProgram": address
-                    },
-                    {
-                        "commitment": "confirmed",
-                        "encoding": "jsonParsed",
-                        "showRewards": True,
-                        "transactionDetails": "full"
-                    }
-                ]
-            }
-            for i, address in enumerate(addresses)
-        ]
+        monitor_addresses = [RAYDIUM_V4_PROGRAM_ID] + addresses
+        print(f"正在监控以下地址:")
+        for addr in monitor_addresses:
+            print(f"- {addr}")
 
-        # 保存每个账户的最新状态
+        # Helius 的订阅消息格式
+        subscription_message = {
+            "jsonrpc": "2.0",
+            "id": "420",
+            "method": "transactionSubscribe",
+            "params": [
+                {
+                    "accountInclude": monitor_addresses  # 监控 Raydium 程序和所有钱包地址
+                },
+                {
+                    "commitment": "processed",
+                    "encoding": "jsonParsed",
+                    "transactionDetails": "full",
+                    "showRewards": True,
+                    "maxSupportedTransactionVersion": 0
+                }
+            ]
+        }
+
         self.account_states = {}
 
         while True:
             try:
-                async with websockets.connect(self.ws_url, ping_interval=30) as websocket:
-                    for message in subscription_messages:
-                        await websocket.send(json.dumps(message))
-                        print(f"已订阅址: {message['params'][0]['mentionsAccountOrProgram']}")
+                # 连接 Helius WebSocket（需要添加 API key）
+                helius_ws_url = "wss://mainnet.helius-rpc.com/?api-key=6f5e8e8c-5e87-43c4-bbfa-b733a13d81da"
+                async with websockets.connect(helius_ws_url, ping_interval=30) as websocket:
+                    print(f"已连接到 Helius WebSocket")
+                    
+                    # 发送订阅请求
+                    await websocket.send(json.dumps(subscription_message))
+                    print("已发送订阅请求")
+                    
+                    # 发送定期的 ping
+                    ping_task = asyncio.create_task(self._ping_websocket(websocket))
                     
                     while True:
                         try:
                             response = await websocket.recv()
-                            print(response)
+                            print(f"收到消息: {response}")
                             transaction_data = json.loads(response)
                             
                             if "params" in transaction_data:
@@ -224,6 +234,8 @@ class SolanaMonitor:
                             
                         except websockets.ConnectionClosed:
                             print("WebSocket 连接已断开，准备重连...")
+                            if not ping_task.done():
+                                ping_task.cancel()
                             break
                         except Exception as e:
                             print(f"处理消息错误: {str(e)}")
@@ -232,7 +244,19 @@ class SolanaMonitor:
             except Exception as e:
                 print(f"连接错误: {str(e)}")
                 print("5秒后尝试重连...")
-                await asyncio.sleep(1)
+                await asyncio.sleep(5)
+
+    async def _ping_websocket(self, websocket):
+        """定期发送 ping 以保持连接"""
+        try:
+            while True:
+                if websocket.open:
+                    await websocket.ping()
+                    print("Ping 已发送")
+                await asyncio.sleep(30)  # 每30秒发送一次 ping
+        except Exception as e:
+            print(f"Ping 错误: {str(e)}")
+
 
 async def run_monitor(db: Session):
     """运行监控器的入口函数"""
