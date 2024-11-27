@@ -192,20 +192,17 @@ class SolanaMonitor:
         subscription_message = {
             "jsonrpc": "2.0",
             "id": "420",
-            "method": "transactionSubscribe",
+            "method": "programSubscribe",
             "params": [
-                {
-                    "accountInclude": monitor_addresses  # 监控 Raydium 程序和所有钱包地址
-                },
+                RAYDIUM_V4_PROGRAM_ID,
                 {
                     "commitment": "processed",
                     "encoding": "jsonParsed",
-                    "transactionDetails": "full",
-                    "showRewards": True,
-                    "maxSupportedTransactionVersion": 0
+                    "filters": [{"memcmp": {"offset": 32, "bytes": addr}} for addr in addresses]
                 }
             ]
         }
+
 
         self.account_states = {}
 
@@ -216,9 +213,11 @@ class SolanaMonitor:
                 async with websockets.connect(helius_ws_url, ping_interval=30) as websocket:
                     print(f"已连接到 Helius WebSocket")
                     
-                    # 发送订阅请求
+                    print(f"连接到 WebSocket URL: {helius_ws_url}")
+                    print(f"发送订阅消息: {json.dumps(subscription_message, indent=2)}")
                     await websocket.send(json.dumps(subscription_message))
-                    print("已发送订阅请求")
+                    initial_response = await websocket.recv()
+                    print(f"初始响应: {initial_response}")
                     
                     # 发送定期的 ping
                     ping_task = asyncio.create_task(self._ping_websocket(websocket))
@@ -253,7 +252,7 @@ class SolanaMonitor:
                 if websocket.open:
                     await websocket.ping()
                     print("Ping 已发送")
-                await asyncio.sleep(30)  # 每30秒发送一次 ping
+                await asyncio.sleep(15)  # 改为每15秒发送一次 ping
         except Exception as e:
             print(f"Ping 错误: {str(e)}")
 
